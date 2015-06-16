@@ -16,7 +16,7 @@ For DC14 samples setup your working directory like this:
 
 `source FrameworkSub/bootstrap/setup-tag.sh`
 
-### Replace the CxAODReader directory with the mono-W/Z/H version
+### Replace CxAODReader directory with the mono-W/Z/H version
 
 `rm -rI CxAODReader`
 
