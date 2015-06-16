@@ -6,10 +6,8 @@ General information on the CxAODFramework is on
 For DC14 samples setup your working directory like this:
 
 ### Setup ATLAS environment and create working directory
-
-setupATLAS
-
-mkdir CxAODFramework
+`setupATLAS`
+`mkdir CxAODFramework`
 
 cd CxAODFramework/
 
