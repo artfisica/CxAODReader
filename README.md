@@ -22,6 +22,6 @@ For DC14 samples setup your working directory like this:
 
 `git clone git@github.com:noslenwerdna/CxAODReader.git`
 
-## Compile all packages
+### Compile all packages
 
 `rc build`
