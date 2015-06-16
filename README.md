@@ -3,7 +3,7 @@
 General information on the CxAODFramework is on 
 [CxAODFramework](https://twiki.cern.ch/twiki/bin/viewauth/AtlasProtected/CxAODFramework).
 
-For DC14 samples setup your working directory like this:
+Follow these steps to set up your working area for DC14 samples. 
 
 ### Setup ATLAS environment and create working directory
 `setupATLAS`
