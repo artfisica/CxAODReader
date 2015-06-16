@@ -6,7 +6,7 @@ https://twiki.cern.ch/twiki/bin/viewauth/AtlasProtected/CxAODFramework.
 
 For DC14 samples setup your working directory like this:
 
-## Setup ATLAS environment and make working directory
+### Setup ATLAS environment and create working directory
 
 setupATLAS
 
@@ -18,12 +18,12 @@ svn co svn+ssh://svn.cern.ch/reps/atlasoff/PhysicsAnalysis/HiggsPhys/Run2/Hbb/Cx
 
 source FrameworkSub/bootstrap/setup-tag.sh
 
-## Replace the CxAODReader directory with the mono-W/Z/H version
+### Replace the CxAODReader directory with the mono-W/Z/H version
 
 rm -rI CxAODReader
 
 git clone git@github.com:noslenwerdna/CxAODReader.git
 
-# Compile all packages
+## Compile all packages
 
 rc build
