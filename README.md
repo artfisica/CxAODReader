@@ -5,7 +5,7 @@ General information on the CxAODFramework is on
 
 Follow these steps to set up your working area for DC14 samples. 
 
-### Setup ATLAS environment and create working directory
+### Set up ATLAS environment and create working directory
 `setupATLAS`
 
 `mkdir CxAODFramework`
