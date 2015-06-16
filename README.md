@@ -1,8 +1,7 @@
 # CxAODReader
 
 General information on the CxAODFramework is on 
-
-https://twiki.cern.ch/twiki/bin/viewauth/AtlasProtected/CxAODFramework.
+[CxAODFramework](https://twiki.cern.ch/twiki/bin/viewauth/AtlasProtected/CxAODFramework).
 
 For DC14 samples setup your working directory like this:
 
