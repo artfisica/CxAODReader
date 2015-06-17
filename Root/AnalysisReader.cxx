@@ -1,15 +1,10 @@
-#include <EventLoop/Job.h>
-#include <EventLoop/StatusCode.h>
-#include <EventLoop/Worker.h>
+#include "EventLoop/Job.h"
+#include "EventLoop/StatusCode.h"
+#include "EventLoop/Worker.h"
+#include "EventLoop/OutputStream.h"
 #include <CxAODReader/AnalysisReader.h>
 
 #include "xAODEventInfo/EventInfo.h"
-#include "xAODJet/JetContainer.h"
-#include "xAODEgamma/ElectronContainer.h"
-#include "xAODMuon/MuonContainer.h"
-#include "xAODEgamma/PhotonContainer.h"
-#include "xAODMissingET/MissingETContainer.h"
-#include "xAODTruth/TruthParticleContainer.h"
 #include "xAODBTagging/BTagging.h"
 
 #include "TLorentzVector.h"
@@ -19,15 +14,36 @@
 // this is needed to distribute the algorithm to the workers
 ClassImp(AnalysisReader)
   AnalysisReader :: AnalysisReader () :
-    m_analysisType(-1),
-    m_eventCounter(0),
+    m_debug(false),
+    m_applyEventPreSelection(false),
     m_isMC(false),
     m_weight(1.),
-    m_MCweight(1.),
     m_sumOfWeights(1.),
     m_isSherpaVJets(0),
     m_isSherpaPt0VJets(0),
-    m_SherpaPt0VJetsCut(70000)
+    m_SherpaPt0VJetsCut(70000),
+    m_eventInfoReader(nullptr),
+    m_METReader(nullptr),
+    m_electronReader(nullptr),
+    m_photonReader(nullptr),
+    m_muonReader(nullptr),
+    m_tauReader(nullptr),
+    m_jetReader(nullptr),
+    m_fatJetReader(nullptr),
+    m_truthParticleReader(nullptr),
+    m_eventInfo(nullptr),
+    m_met(nullptr),
+    m_metCont(nullptr),
+    m_electrons(nullptr),
+    m_photons(nullptr),
+    m_muons(nullptr),
+    m_taus(nullptr),
+    m_jets(nullptr),
+    m_fatJets(nullptr),
+    m_truthParts(nullptr),
+    m_overlapRemoval(nullptr),
+    m_xSectionProvider(nullptr),
+    m_sumOfWeightsProvider(nullptr)
 {
   // Here you put any code for the base initialization of variables,
   // e.g. initialize all pointers to 0.  Note that you should only put
@@ -56,7 +72,6 @@ EL::StatusCode AnalysisReader :: setupJob (EL::Job& job)
 
 void AnalysisReader :: fillCutflow(std::string binName) {
   m_histMap["Cutflow"]->Fill(m_histMap["Cutflow"]->GetXaxis()->FindBin(binName.c_str()), m_weight);
-  m_histMap["Cutflow_MCweight"]->Fill(m_histMap["Cutflow"]->GetXaxis()->FindBin(binName.c_str()), m_MCweight);
   m_histMap["Cutflow_noweight"]->Fill(m_histMap["Cutflow"]->GetXaxis()->FindBin(binName.c_str()));
 }
 
@@ -69,8 +84,6 @@ EL::StatusCode AnalysisReader :: histInitialize ()
 
   // In absence of hist manager suggest m_hist_Xlep_histname for pointers
   // name on file can be the same
-
-  Info("histInitialize()", "Analysis type %i", m_analysisType ); 
 
   // some histograms useful for all analyses
   // Truth pt
@@ -187,15 +200,12 @@ EL::StatusCode AnalysisReader :: histInitialize ()
   static string cuts [nCuts] = {"All", "pre-selection",  "250met", "350met", "one fatjet", "no electron", "no muon", "no photon", "addjetveto", "phi metjet", "500met" ,"mJ_{W/Z}"};
 
   m_histMap["Cutflow"] = new TH1D("Cutflow","Cutflow", nCuts, 0.5, (float)(nCuts)+0.5);
-  m_histMap["Cutflow_MCweight"] = new TH1D("Cutflow_MCweight","Cutflow_MCweight", nCuts, 0.5, (float)(nCuts)+0.5);
   m_histMap["Cutflow_noweight"] = new TH1D("Cutflow_noweight","Cutflow_noweight", nCuts, 0.5, (float)(nCuts)+0.5);
   for(unsigned int i=0; i<nCuts; i++) {
     m_histMap["Cutflow"]->GetXaxis()->SetBinLabel(i+1,cuts[i].c_str());
-    m_histMap["Cutflow_MCweight"]->GetXaxis()->SetBinLabel(i+1,cuts[i].c_str());
     m_histMap["Cutflow_noweight"]->GetXaxis()->SetBinLabel(i+1,cuts[i].c_str());
   }
   wk()->addOutput(m_histMap["Cutflow"]);
-  wk()->addOutput(m_histMap["Cutflow_MCweight"]);
   wk()->addOutput(m_histMap["Cutflow_noweight"]);
 
   return EL::StatusCode::SUCCESS;
@@ -246,66 +256,144 @@ EL::StatusCode AnalysisReader :: initialize ()
   // doesn't get called if no events are processed.  So any objects
   // you create here won't be available in the output if you have no
   // input events.
-  cout<< "initial" <<endl; 
+
+  EL_CHECK("initialize()",initializeEvent());
+  EL_CHECK("initialize()",initializeReader());
+  EL_CHECK("initialize()",initializeSelection());
+  EL_CHECK("initialize()",initializeIsMC());
+  EL_CHECK("initialize()",initializeXSections());
+  EL_CHECK("initialize()",initializeSumOfWeights());
+
+  return EL::StatusCode::SUCCESS;
+}
+
+EL::StatusCode AnalysisReader :: initializeEvent()
+{
+
+  Info("initializeEvent()", "Initialize event.");
+
   m_event = wk()->xaodEvent();
 
   // as a check, let's see the number of events in our xAOD
-  Info("initialize()", "Number of events on first file = %lli", m_event->getEntries() ); // print long long int
+  Info("initializeEvent()", "Number of events on first file = %lli", m_event->getEntries() ); // print long long int
 
   m_eventCounter = 0;
 
-  Info("initialize()", "Analysis type %i", m_analysisType ); 
-
-  m_overlapRemoval = new OverlapRemoval();
-
-  //
-  const xAOD::EventInfo* eventInfo = 0;
-  if( ! m_event->retrieve( eventInfo, "EventInfo___Nominal").isSuccess() ){
-    Error("initialize()", "Failed to retrieve event info collection. Exiting." );
+  // get configuration from steerfile
+  //----------------------------------
+  m_config = ConfigStore::createStore(m_configPath, false);
+  if ( ! m_config ) {
+    Error("initializeEvent()","Couldn't create ConfigStore from file : %s",m_configPath.c_str());
     return EL::StatusCode::FAILURE;
   }
+  m_config->getif< bool >("debug", m_debug);
+  
+  // luminosity (for rescaling of MC to desired lumi, in fb-1)
+  // default is 0.001 fb-1, which means no rescaling of the MC inputs (already scaled to 1 pb-1)
+  m_luminosity = 0.001; 
+  m_config->getif<float>("luminosity", m_luminosity);
+  Info("initializeEvent()", "Luminosity for normalisation of MC = %f fb-1", m_luminosity);
 
-  // get MC flag - different info on data/MC files
-  m_isMC=m_superDecorator.get(eventInfo, EventInfoIntProps::isMC);
-  Info("initialize()", "isMC = %i", m_isMC );
+  m_config->getif<bool>("passThroughOR", m_passThroughOR);
+  if(m_passThroughOR) Warning("AnalysisReader :: AnalysisReader ()","Set OR to pass-through mode!");
 
-  // initilise cross section provider - steerable centre of mass?
-  if (m_isMC) {
-    string xSectionFile = gSystem->Getenv("ROOTCOREBIN");
-    if(m_comEnergy=="13TeV") 
-      xSectionFile += "/data/CxAODTools/XSections_13TeV.txt";
-    else if (m_comEnergy=="8TeV") 
-      xSectionFile += "/data/CxAODTools/XSections_8TeV.txt";
-    else {
-      Error("initialize()", "Unknown COM energy. Exiting. %s",m_comEnergy.Data());
-      return EL::StatusCode::FAILURE;
-    }
-    m_xSection = new XSectionProvider(xSectionFile);
-  }
-
-  // initilise sumOfWeights provider
-  if (m_isMC) {
-    // which analysis
-    string ana_read = "";
-    if (m_analysisType==monoWZH) ana_read = "0lep";
-    else {
-      Warning("histInitialize()", "Invalid analysis type %i",m_analysisType);
-      return EL::StatusCode::FAILURE;
-    }
-
-    string sumOfWeightsFile = gSystem->Getenv("ROOTCOREBIN");
-    sumOfWeightsFile += "/data/CxAODTools/yields.";
-    sumOfWeightsFile += ana_read;
-    if(m_comEnergy=="13TeV") sumOfWeightsFile += ".13TeV.txt";
-    else if (m_comEnergy=="8TeV") sumOfWeightsFile += ".8TeV.txt";
-    else {
-      Error("initialize()", "Unknown COM energy. Exiting. %s",m_comEnergy.Data());
-      return EL::StatusCode::FAILURE;
-    }
-    m_sumOfWeights_fix = new sumOfWeightsProvider(sumOfWeightsFile);
-  }
+  m_config->getif< bool >("applyEventPreSelection", m_applyEventPreSelection);
 
   return EL::StatusCode::SUCCESS;
+}
+
+EL::StatusCode AnalysisReader :: initializeReader()
+{
+  Info("initializeReader()", "Initialize object reader.");
+
+  // note: the names of the readers determine which collections are
+  //       read, see also framework-read.cfg
+
+  m_eventInfoReader = registerReader<xAOD::EventInfo>("eventInfo");
+  m_METReader       = registerReader<xAOD::MissingETContainer>("MET");
+  m_electronReader  = registerReader<xAOD::ElectronContainer>("electron");
+  m_photonReader    = registerReader<xAOD::PhotonContainer>("photon");
+  m_muonReader      = registerReader<xAOD::MuonContainer>("muon");
+  m_tauReader       = registerReader<xAOD::TauJetContainer>("tau");
+  m_jetReader       = registerReader<xAOD::JetContainer>("jet");
+  m_fatJetReader    = registerReader<xAOD::JetContainer>("fatJet");
+  m_truthParticleReader = registerReader<xAOD::TruthParticleContainer>("truthParticle");
+ 
+  return EL::StatusCode::SUCCESS;
+}
+ 
+EL::StatusCode AnalysisReader :: initializeSelection()
+{
+  Info("initializeSelection()", "Initialize selection.");
+  
+  m_overlapRemoval = new OverlapRemoval(*m_config);
+  EL_CHECK("AnalysisReader::initializeSelection()", m_overlapRemoval -> initialize());
+
+  return EL::StatusCode::SUCCESS;
+}
+
+EL::StatusCode AnalysisReader :: initializeIsMC()
+{
+  Info("initializeIsMC()", "Initialize isMC.");
+  // get nominal event info
+  //-------------------------------------------------------------
+  const xAOD::EventInfo* eventInfo = m_eventInfoReader->getObjects("Nominal");
+  if(!eventInfo) return EL::StatusCode::FAILURE;
+
+  // get MC flag - different info on data/MC files
+  //-----------------------------------------------
+  m_isMC = Props::isMC.get(eventInfo);
+  Info("initializeIsMC()", "isMC = %i", m_isMC );
+
+  return EL::StatusCode::SUCCESS;
+}
+
+EL::StatusCode AnalysisReader :: initializeXSections()
+{
+  Info("initializeXSections()", "Initialize cross sections.");
+
+  if (!m_isMC) {
+    return EL::StatusCode::SUCCESS;
+  }
+
+  // COM energy
+  std::string comEnergy = m_config->get<std::string>("COMEnergy");
+  
+  std::string xSectionFile = gSystem->Getenv("ROOTCOREBIN");
+  xSectionFile += "/data/FrameworkSub/XSections_";
+  xSectionFile += comEnergy;
+  xSectionFile += ".txt";
+  m_xSectionProvider = new XSectionProvider(xSectionFile);
+
+  return EL::StatusCode::SUCCESS;
+}
+
+EL::StatusCode AnalysisReader :: initializeSumOfWeights()
+{
+  Info("initializeSumOfWeights()", "Initialize sum of weights.");
+
+  if (!m_isMC) {
+    return EL::StatusCode::SUCCESS;
+  }
+
+  // COM energy
+  std::string comEnergy = m_config->get<std::string>("COMEnergy");
+
+  std::string sumOfWeightsFile = gSystem->Getenv("ROOTCOREBIN");
+  sumOfWeightsFile += "/data/FrameworkSub/yields.0lep.";
+  sumOfWeightsFile += comEnergy;
+  sumOfWeightsFile += ".txt";
+  m_sumOfWeightsProvider = new sumOfWeightsProvider(sumOfWeightsFile);
+
+  return EL::StatusCode::SUCCESS;
+}
+
+EL::StatusCode AnalysisReader ::  setObjectsForOR(const xAOD::ElectronContainer* /*electrons*/, 
+						  const xAOD::PhotonContainer* /*photons*/,	
+						  const xAOD::MuonContainer* /*muons*/,		
+						  const xAOD::TauJetContainer* /*taus*/,
+						  const xAOD::JetContainer* /*jets*/){
+return EL::StatusCode::SUCCESS;
 }
 
 EL::StatusCode AnalysisReader :: execute ()
@@ -318,16 +406,6 @@ EL::StatusCode AnalysisReader :: execute ()
   // print every 10000 events
   if( (m_eventCounter % 10000) ==0 ) Info("execute()", "Event number = %i", m_eventCounter );
   m_eventCounter++;
-
-  //----------------------------
-  // Event information
-  //--------------------------- 
-
-  const xAOD::EventInfo* eventInfo = 0;
-  if( ! m_event->retrieve( eventInfo, "EventInfo___Nominal").isSuccess() ){
-    Error("execute()", "Failed to retrieve event info collection. Exiting." );
-    return EL::StatusCode::FAILURE;
-  }
 
   // detemine if it is a Sherpa Pt0 sample, and remove events overlapping with slice (flag set for 13TeV only)
   float vpt_truth(-999);
@@ -357,26 +435,12 @@ EL::StatusCode AnalysisReader :: execute ()
 
   // reset event weight
   m_weight=1.0; 
-  m_MCweight=1.0; 
 
   // Query - reading the cross section every event.
   // This is because on the first event fileExecute and changeInput are called before initialize
   // so there is no event available to read datasetid
   if (m_isMC) {
-    int datasetid=eventInfo->mcChannelNumber();
-    // fix m_sumOfWeights when production done on xAOD
-    m_sumOfWeights = (m_sumOfWeights_fix) ? m_sumOfWeights_fix->getsumOfWeights(datasetid) : 1.0;
-    //
-    float sigmaEff = (m_xSection) ? m_xSection->getXSection(datasetid) : 1.0;
-
-    // we are normalising to MC lumi, sumOfWeights calculated per file.
-    m_weight= (m_sumOfWeights) ? sigmaEff/m_sumOfWeights : 1.0;
-  }
-
-  // multiply by MC generator weight 
-  if (m_isMC) {
-    m_weight *= m_superDecorator.get(eventInfo,EventInfoFloatProps::MCEventWeight);
-    m_MCweight *= m_superDecorator.get(eventInfo,EventInfoFloatProps::MCEventWeight);
+    EL_CHECK("AnalysisReader::execute()", getLumiWeight(m_weight));
   }
 
   // Sherpa Vpt  
@@ -385,13 +449,88 @@ EL::StatusCode AnalysisReader :: execute ()
     m_hist_VPtTruth->Fill(vpt_truth/1000, m_weight);
   }
 
-  if (m_analysisType==monoWZH)
-  {
-    do_Analysis();
+  m_eventInfo = m_eventInfoReader->getObjects("Nominal");
+  m_metCont   = m_METReader->getObjects("Nominal");
+  m_electrons = m_electronReader->getObjects("Nominal");
+  m_photons   = m_photonReader->getObjects("Nominal");
+  m_muons     = m_muonReader->getObjects("Nominal");
+  m_taus      = m_tauReader->getObjects("Nominal");
+  m_jets      = m_jetReader->getObjects("Nominal");
+  m_fatJets   = m_fatJetReader->getObjects("Nominal");
+  m_truthParts = m_truthParticleReader->getObjects("Nominal");
+
+  m_met = nullptr;
+  if(m_metCont->size() > 0) m_met = m_metCont->at(0);
+
+  setObjectsForOR(m_electrons, m_photons, m_muons, m_taus, m_jets);
+  if(m_passThroughOR) {
+    OverlapPassThrough(m_electrons, m_photons, m_muons, m_taus, m_jets);
+  } else {
+    m_overlapRemoval->removeOverlap(m_electrons, m_photons, m_muons, m_taus, m_jets);
   }
+
+  do_Analysis();
 
   return EL::StatusCode::SUCCESS;
 
+}
+
+EL::StatusCode AnalysisReader::getLumiWeight(double & weight) {
+  
+  weight = 1.;
+
+  const xAOD::EventInfo* eventInfo = m_eventInfoReader->getObjects("Nominal");
+  if (!eventInfo) {
+    Error("getLumiWeight()", "EventInfo not found!");
+    return EL::StatusCode::FAILURE;
+  }
+
+  // Query - reading the cross section every event.
+  // This is because on the first event fileExecute and changeInput are called before initialize
+  // so there is no event available to read datasetid
+  int datasetid = eventInfo->mcChannelNumber();
+  
+  // TODO move sumOfWeights to changeInput()?
+  // TODO need to know if we were running on DxAOD
+  double sumOfWeights = 1;
+  if (false) {
+    // CxAOD was produced on DxAOD
+    TFile* inputfile=wk()->inputFile();
+    TH1* metahist = (TH1*) inputfile->Get("MetaData_EventCount");
+    if (!metahist) {
+      Error("getLumiWeight()", "SumOfWeights provider not initialized!");
+      return EL::StatusCode::FAILURE;
+    }
+    //double nevents = metahist->GetBinContent(7);
+    sumOfWeights = metahist->GetBinContent(8);
+    //std::cout << " Number of Events/Sum of weights on xAOD " << nevents << " " << m_sumOfWeights << std::endl;
+  } else {
+    // CxAOD was produced on xAOD
+    if (!m_sumOfWeightsProvider) {
+      Error("getLumiWeight()", "SumOfWeights provider not initialized!");
+      return EL::StatusCode::FAILURE;
+    }
+    sumOfWeights = m_sumOfWeightsProvider->getsumOfWeights(datasetid);
+  }
+  
+  if (!m_xSectionProvider) {
+    Error("getLumiWeight()", "XSection provider not initialized!");
+    return EL::StatusCode::FAILURE;
+  }
+
+  float sigmaEff = m_xSectionProvider->getXSection(datasetid);
+  //std::cout << "Cross section times eff. for dataset id " << datasetid << " = " << sigmaEff << std::endl;
+
+  // we are normalising to MC lumi, sumOfWeights calculated per datasetid
+  weight = (sumOfWeights) ? sigmaEff / sumOfWeights : 1.0;
+
+  // multiply by MC generator weight 
+  weight *= Props::MCEventWeight.get(eventInfo);
+
+  // scale to desired luminosity
+  weight *= (m_luminosity * 1e3); //the MC is scaled to 1pb-1 but m_luminosity is in fb-1
+
+  return EL::StatusCode::SUCCESS;
 }
 
 EL::StatusCode AnalysisReader :: fill_oneLep(physicsObjects &po)
@@ -432,7 +571,7 @@ EL::StatusCode AnalysisReader :: fill_oneLep(physicsObjects &po)
   //b-taged AntiKt4jet 
   for(unsigned int iJet(0); iJet < po.sigJets.size();iJet++){
     const xAOD::Jet* Jet = po.sigJets.at(iJet);  
-    if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
+    //if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
     CRbJets.push_back(Jet);
   }
   if(WVec.Pt()/1000. > 40) pass_pTW = true;
@@ -491,7 +630,7 @@ EL::StatusCode AnalysisReader :: fill_twoLep(physicsObjects &po)
   //b-taged AntiKt4jet 
   for(unsigned int iJet(0); iJet < po.sigJets.size();iJet++){
     const xAOD::Jet* Jet = po.sigJets.at(iJet);
-    if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
+    //if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
     CRbJets.push_back(Jet);
   }
   if(CRbJets.size() ==0) pass_zerobJet = true;
@@ -584,7 +723,7 @@ EL::StatusCode AnalysisReader :: fill_zvv(physicsObjects &po)
   //b-taged AntiKt4jet 
   for(unsigned int iJet(0); iJet < po.sigJets.size();iJet++){
     const xAOD::Jet* Jet = po.sigJets.at(iJet);
-    if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
+    //if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
     CRbJets.push_back(Jet);
   }
   if(po.looseElectrons.size() == 0 ) pass_noelectron = true;
@@ -660,7 +799,7 @@ EL::StatusCode AnalysisReader :: fill_top(physicsObjects &po, TLorentzVector &fj
       jetvec.SetPtEtaPhiM(Jet->pt(), Jet->eta(), Jet->phi(), Jet->m());    
       if( minR > jetvec.DeltaR(lep)) minR = jetvec.DeltaR(lep);  
       TopCRJets.push_back(Jet);
-      if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
+      //if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
       if(!(jetvec.DeltaR(fjet) < 1.))continue;
       TopCRbJets.push_back(Jet);    
     }
@@ -717,7 +856,7 @@ EL::StatusCode AnalysisReader :: fill_qcd(physicsObjects &po)
   //b-taged AntiKt4jet 
   for(unsigned int iJet(0); iJet < po.sigJets.size();iJet++){
     const xAOD::Jet* Jet = po.sigJets.at(iJet);
-    if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
+    //if(!(m_superDecorator.get(Jet, JetFloatProps::MV1) > 0.971966))  continue; // 70% operation point 
     CRbJets.push_back(Jet);
   }
   if(po.looseElectrons.size() == 0 ) pass_noelectron = true;
@@ -833,8 +972,8 @@ EL::StatusCode AnalysisReader :: fill_monoWZ(physicsObjects &po, TLorentzVector 
     m_histMap["500METCutflowMET"]->Fill(po.metVec.Pt()/1000., m_weight);
     for(unsigned int iJet(0); iJet < po.fatsigJets.size();iJet++){
       const xAOD::Jet* Jet = po.fatsigJets.at(iJet);  
-      m_histMap["preSelTau21"]->Fill(m_superDecorator.get(Jet, FatJetFloatProps::Tau21), m_weight);
-      m_histMap["preSelD2"]->Fill(m_superDecorator.get(Jet, FatJetFloatProps::D2), m_weight);
+      m_histMap["preSelTau21"]->Fill(Props::Tau21.get(Jet), m_weight);
+      m_histMap["preSelD2"]->Fill(Props::D2.get(Jet), m_weight);
     }
   }
   if(pass_250met  && pass_fatjet &&  pass_noelectron && pass_nomuon && pass_jetveto && pass_phimetjet && pass_metcut && pass_jetmass)
@@ -843,8 +982,8 @@ EL::StatusCode AnalysisReader :: fill_monoWZ(physicsObjects &po, TLorentzVector 
     m_histMap["massFatjetCutflowMET"]->Fill(po.metVec.Pt()/1000., m_weight);
     for(unsigned int iJet(0); iJet < po.fatsigJets.size();iJet++){
       const xAOD::Jet* Jet = po.fatsigJets.at(iJet);  
-      m_histMap["monoWZSRTau21"]->Fill(m_superDecorator.get(Jet, FatJetFloatProps::Tau21), m_weight);
-      m_histMap["monoWZSRD2"]->Fill(m_superDecorator.get(Jet, FatJetFloatProps::D2), m_weight);
+      m_histMap["monoWZSRTau21"]->Fill(Props::Tau21.get(Jet), m_weight);
+      m_histMap["monoWZSRD2"]->Fill(Props::D2.get(Jet), m_weight);
     }
   }
 
@@ -896,66 +1035,14 @@ EL::StatusCode AnalysisReader :: fill_monoWZ(physicsObjects &po, TLorentzVector 
 
 EL::StatusCode AnalysisReader :: do_Analysis()
 {
-  //data GRL
-  const xAOD::EventInfo* eventInfo = 0;
-  if( ! m_event->retrieve( eventInfo, "EventInfo___Nominal").isSuccess() ){
-    Error("execute()", "Failed to retrieve event info collection. Exiting." );
-    return EL::StatusCode::FAILURE;
-  }
-
-  if (!m_isMC) {
-    bool passGRL=m_superDecorator.get(eventInfo, EventInfoIntProps::passGRL);
-    if(!passGRL) return EL::StatusCode::SUCCESS;
-  }
-
-  //----------------------
-  //Load Objects
-  //----------------------
-  const xAOD::JetContainer* jets = 0;
-  if ( !m_event->retrieve( jets, "AntiKt4LCTopoJets___Nominal" ).isSuccess() ){ // retrieve arguments: container type, container key
-    Error("execute()", "Failed to retrieve AntiKt4LCTopoJets container. Exiting." );
-    return EL::StatusCode::FAILURE;
-  }
-
-  //-----------------------
-  //FatJets
-  //----------------------
-  //trimmed AntiKt10Jet
-  const xAOD::JetContainer* fatjets = 0;
-  if ( !m_event->retrieve( fatjets, "AntiKt10LCTopoTrimmedPtFrac5SmallR20Jets___Nominal" ).isSuccess() ){ // retrieve arguments: container type, container key
-    Error("execute()", "Failed to retrieve AntiKt10LCTopoTrimmedPtFrac5SmallR20Jets___Nominal container. Exiting." );
-    return EL::StatusCode::FAILURE;
-  }
-
-  const xAOD::MuonContainer* muons = 0;
-  if ( !m_event->retrieve( muons, "Muons___Nominal" ).isSuccess() ){ // retrieve arguments: container type, container key
-    Error("execute()", "Failed to retrieve Muons container. Exiting." );
-    return EL::StatusCode::FAILURE;
-  }
-
-  const xAOD::ElectronContainer* elecs = 0;
-  if ( !m_event->retrieve( elecs, "ElectronCollection___Nominal" ).isSuccess() ){
-    Error("execute()", "Failed to retrieve Electrons container. Exiting." );
-    return EL::StatusCode::FAILURE;
-  }
-
-  const xAOD::MissingETContainer* METNominal = 0;
-  if ( !m_event->retrieve( METNominal, "MET_RefFinal___Nominal" ).isSuccess() ){
-    Error("execute()", "Failed to retrieve Missing Et container. Exiting." );
-    return EL::StatusCode::FAILURE;
-  }
-
-  const xAOD::MissingET * met = 0;
-  if(METNominal->size() > 0) met = METNominal->at(0);
-
   //------------------------
   //Event Selection
   //-------------------------
   // select events
   vector<const xAOD::Jet*> selJets;
 
-  for(unsigned int iJet(0); iJet < jets->size();iJet++){
-    const xAOD::Jet* Jet = jets->at(iJet);
+  for(unsigned int iJet(0); iJet < m_jets->size();iJet++){
+    const xAOD::Jet* Jet = m_jets->at(iJet);
     selJets.push_back(Jet);
   }
 
@@ -964,10 +1051,10 @@ EL::StatusCode AnalysisReader :: do_Analysis()
   TLorentzVector fjet;
 
   //fat jet selection Pt > 250GeV |eta| < 1.2
-  for(unsigned int i(0); i < fatjets->size() ;i++){
-    if(fatjets->at(i)->pt()/1000. < 250.) continue;
-    if(fabs(fatjets->at(i)->eta()) > 1.2) continue;
-    po.fatsigJets.push_back(fatjets->at(i));
+  for(unsigned int i(0); i < m_fatJets->size() ;i++){
+    if(m_fatJets->at(i)->pt()/1000. < 250.) continue;
+    if(fabs(m_fatJets->at(i)->eta()) > 1.2) continue;
+    po.fatsigJets.push_back(m_fatJets->at(i));
   }  
 
   //find leading fatjet
@@ -977,20 +1064,20 @@ EL::StatusCode AnalysisReader :: do_Analysis()
   }
 
   if(po.fatsigJets.size() > 0) fjet.SetPtEtaPhiM(po.fatsigJets.at(leadingfatjet)->pt(), po.fatsigJets.at(leadingfatjet)->eta(), po.fatsigJets.at(leadingfatjet)->phi(), po.fatsigJets.at(leadingfatjet)->m());
-  po.metVec.SetPtEtaPhiM(met->met(), 0, met->phi(), 0);
+  po.metVec.SetPtEtaPhiM(m_met->met(), 0, m_met->phi(), 0);
 
   //loose quality cut
   //Electrons: isVHLooseElectron, Isolation cut: ptcone20/pt<0.1
   //Muon: isVHLooseMuon,  Isolation cut: ptcone20/pt<0.1
-  for(unsigned int i(0); i < elecs->size();i++){
-    const xAOD::Electron* elec = elecs->at(i);
-    if(!m_superDecorator.get(elec, ElecIntProps::isVHLooseElectron)) continue;
+  for(unsigned int i(0); i < m_electrons->size();i++){
+    const xAOD::Electron* elec = m_electrons->at(i);
+    if(!Props::isVHLooseElectron.get(elec)) continue; 
     if(!(elec->isolationValue(xAOD::Iso::ptcone20) / elec->pt() < 0.1)) continue;
     po.looseElectrons.push_back(elec);
   }
-  for(unsigned int i(0); i < muons->size();i++){
-    const xAOD::Muon* muon = muons->at(i);
-    if(!(m_superDecorator.get(muon, MuonIntProps::isVHLooseMuon))) continue;
+  for(unsigned int i(0); i < m_muons->size();i++){
+    const xAOD::Muon* muon = m_muons->at(i);
+    if(!Props::isVHLooseMuon.get(muon)) continue;
     float trackIso = -999.;
     muon->isolation(trackIso,xAOD::Iso::ptcone20); 
     if(!((trackIso/ muon->pt()) < 0.1))continue;
@@ -1000,15 +1087,15 @@ EL::StatusCode AnalysisReader :: do_Analysis()
   //tight quality cut
   //Electrons: isVHSignalElectron, Isolation cut: ptcone20/pt<0.1
   //Muon: isVHSignalMuon,  Isolation cut: ptcone20/pt<0.1
-  for(unsigned int i(0); i < elecs->size();i++){
-    const xAOD::Electron* elec = elecs->at(i);
-    if(!m_superDecorator.get(elec, ElecIntProps::isWHSignalElectron)) continue;
+  for(unsigned int i(0); i < m_electrons->size();i++){
+    const xAOD::Electron* elec = m_electrons->at(i);
+    if(!Props::isWHSignalElectron.get(elec)) continue;
     if(!(elec->isolationValue(xAOD::Iso::ptcone20) / elec->pt() < 0.1)) continue;
     po.tightElectrons.push_back(elec);
   }
-  for(unsigned int i(0); i < muons->size();i++){
-    const xAOD::Muon* muon = muons->at(i);
-    if(!(m_superDecorator.get(muon, MuonIntProps::isWHSignalMuon))) continue;
+  for(unsigned int i(0); i < m_muons->size();i++){
+    const xAOD::Muon* muon = m_muons->at(i);
+    if(!Props::isWHSignalMuon.get(muon)) continue;
     float trackIso = -999.;
     muon->isolation(trackIso,xAOD::Iso::ptcone20); 
     if(!((trackIso/ muon->pt()) < 0.1))continue;
@@ -1060,11 +1147,11 @@ EL::StatusCode AnalysisReader :: do_Analysis()
   fillCutflow("All");
   // fill pre-selection 
   m_histMap["preSelMET"]->Fill(po.metVec.Pt()/1000., m_weight);
-  m_histMap["preSelFatjetMult"]->Fill(fatjets->size());
-  for(unsigned int i(0); i < fatjets->size() ;i++){
-    m_histMap["preSelFatjetMass"]->Fill(fatjets->at(i)->m()/1000., m_weight); 
-    m_histMap["preSelFatjetPt"]->Fill(fatjets->at(i)->pt()/1000., m_weight); 
-    m_histMap["preSelFatjetEta"]->Fill(fatjets->at(i)->eta(), m_weight); 
+  m_histMap["preSelFatjetMult"]->Fill(m_fatJets->size());
+  for(unsigned int i(0); i < m_fatJets->size() ;i++){
+    m_histMap["preSelFatjetMass"]->Fill(m_fatJets->at(i)->m()/1000., m_weight); 
+    m_histMap["preSelFatjetPt"]->Fill(m_fatJets->at(i)->pt()/1000., m_weight); 
+    m_histMap["preSelFatjetEta"]->Fill(m_fatJets->at(i)->eta(), m_weight); 
   }
   for(unsigned int i(0); i < selJets.size() ;i++){
     m_histMap["preSelJetMass"]->Fill(selJets.at(i)->m()/1000., m_weight); 
@@ -1090,6 +1177,44 @@ EL::StatusCode AnalysisReader :: postExecute ()
   // processing.  This is typically very rare, particularly in user
   // code.  It is mainly used in implementing the NTupleSvc.
   return EL::StatusCode::SUCCESS;
+}
+
+EL::StatusCode AnalysisReader :: OverlapPassThrough(const xAOD::ElectronContainer* electrons,
+                                                    const xAOD::PhotonContainer* photons,
+                                                    const xAOD::MuonContainer* muons,
+                                                    const xAOD::TauJetContainer* taus,
+                                                    const xAOD::JetContainer* jets)  {
+  if (electrons) {
+    for (const xAOD::Electron* elec : *electrons) {
+      Props::passOR.set(elec, true);
+    }
+  }
+
+  if (photons) {
+    for (const xAOD::Photon* photon : *photons) {
+      Props::passOR.set(photon, true);
+    }
+  }
+
+  if (muons) {
+    for (const xAOD::Muon* muon : *muons) {
+      Props::passOR.set(muon, true);
+    }
+  }
+  if (taus) {
+    for (const xAOD::TauJet* tau : *taus) {
+      Props::passOR.set(tau, true);
+    }
+  }
+
+  if (jets) {
+    for (const xAOD::Jet* jet : *jets) {
+      Props::passOR.set(jet, true);
+    }
+  }
+
+  return EL::StatusCode::SUCCESS;
+
 }
 
 EL::StatusCode AnalysisReader :: finalize ()

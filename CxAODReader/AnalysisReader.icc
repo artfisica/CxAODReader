@@ -1,0 +1,17 @@
+// Dear emacs, this is -*-c++-*-
+
+template <class containerType>
+ObjectReader< containerType >* AnalysisReader::registerReader(std::string name) {
+  std::string containerName;
+  m_config->getif<std::string>(name + "Container", containerName);
+  if( containerName.empty() ) {
+    Warning("registerReader()", ("Container for reader '" + name +
+            "' not defined! Reader not registered.").c_str());
+    return nullptr;
+  }
+  ObjectReader< containerType >* reader = new ObjectReader< containerType >(containerName, m_event);
+  m_objectReader.push_back( reader );
+  Info("registerReader()", ("Reader '" + name + "' registered.").c_str());
+  return reader;
+}
+

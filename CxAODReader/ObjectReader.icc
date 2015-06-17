@@ -1,0 +1,122 @@
+// Dear emacs, this is -*-c++-*-
+
+template <class partContainer> 
+ObjectReader<partContainer>::ObjectReader(const std::string& containerName, xAOD::TEvent* event) :
+        m_containerName(containerName),
+        m_event(event),
+        m_haveNominal(true),
+        m_nominalWasRead(false)
+{
+  
+}
+
+template <class partContainer> 
+void ObjectReader<partContainer>::discoverVariations(TTree* collectionTree) {
+
+  Info("ObjectReader::discoverVariations()", ("Reading variations for container '"
+          + m_containerName + "'").c_str());
+
+  if (!collectionTree) {
+    Warning("ObjectReader::discoverVariations()", "No collection tree defined!");
+    return;
+  }
+  //collectionTree->LoadTree(0);
+  TObjArray* branches = collectionTree->GetListOfBranches();
+  TString suffix = "Aux.";
+
+  m_haveNominal = false;
+  m_variations.clear();
+
+  for (int i = 0; i < branches->GetSize(); i++) {
+    // TODO could also use m_event->contains()
+    TBranch* branch = (TBranch*)branches->At(i);
+    TString name = branch->GetName();
+    bool match = true;
+    match &= name.BeginsWith((m_containerName + "___").c_str());
+    match &= name.EndsWith(suffix);
+    if (match) {
+      int prefixLength = m_containerName.length() + 3;
+      int varLength = name.Length() - prefixLength - suffix.Length();
+      TString varName = name(prefixLength, varLength);
+      //check that container is also retrievable...otherwise skip systematic and throw a warning
+      TString containerName = name(0,prefixLength+varLength);
+      const partContainer* container = nullptr;
+      if (!m_event->retrieve(container,containerName.Data()).isSuccess()){
+	Warning("ObjectReader::discoverVariations()", "Failed to retrieve container  '" +
+		containerName+ "'. Skip systematic variation!");
+	continue;
+      }      
+      //std::cout << varName.Data() << std::endl;
+      if (varName.EqualTo("Nominal")) {
+        m_haveNominal = true;
+      }
+      m_variations.push_back(varName.Data());
+    }
+  }
+  if (m_variations.size() == 0) {
+    Warning("ObjectReader::discoverVariations()", ("No variations for container '"
+    	     + m_containerName + "' found!").c_str());
+  } else if (!m_haveNominal) {
+    Warning("ObjectReader::discoverVariations()", ("No 'Nominal' variation for container '"
+    	     + m_containerName + "' found!").c_str());
+  }
+}
+
+
+template <class partContainer>
+const partContainer* ObjectReader<partContainer>::getObjects(std::string variation) {
+
+  if (!m_haveNominal) {
+    return nullptr;
+  }
+  
+  // set variation to 'Nominal' if the requested one does not exist
+
+  bool haveVariation = false;
+  for (std::string var: m_variations) {
+    if (var == variation) {
+      haveVariation = true;
+      break;
+    }
+  }
+  if (!haveVariation) {
+    variation = "Nominal";
+  }
+
+  const partContainer* container = nullptr;
+  
+  // ensure Nominal container is read before any variation
+  
+  if (variation == "Nominal" || !m_nominalWasRead) {
+    std::string containerName = m_containerName + "___Nominal";
+    if (!m_event->retrieve(container, containerName.c_str()).isSuccess()) {
+      Warning("ObjectReader::getObjects()", ("Failed to retrieve nominal container '" +
+              containerName + "'!").c_str());
+      m_haveNominal = false;
+    }
+    m_nominalWasRead = true;
+  }
+  
+  // return Nominal if requested
+  
+  if (variation == "Nominal") {
+    return container;
+  }
+
+  // return variation
+
+  std::string containerName = m_containerName + "___" + variation;
+  if (!m_event->retrieve(container, containerName.c_str()).isSuccess()) {
+    Warning("ObjectReader::getObjects()", ("Failed to retrieve container '" +
+            containerName + "'!").c_str());
+  }
+
+  return container;
+}
+
+template <class partContainer> 
+void ObjectReader<partContainer>::clearEvent() {
+  
+  m_nominalWasRead = false;
+
+}
