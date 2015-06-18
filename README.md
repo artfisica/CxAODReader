@@ -35,6 +35,12 @@ If you already have a github account skip this step.
 
 `git clone git@github.com:noslenwerdna/CxAODReader.git`
 
+`cd CxAODReader`
+
+`git checkout v0.1`
+
+`cd ..`
+
 ### Replace files in other directories for compatibility with CxAODReader
 
 Certain configuration files need to be updated:
