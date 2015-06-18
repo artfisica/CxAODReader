@@ -5,6 +5,16 @@ General information on the CxAODFramework is on
 
 Follow these steps to set up your working area for DC14 samples. 
 
+### Setting up Github
+
+If you already have a github account skip this step. 
+
+* Sign up on github.com
+
+* Generate an ssh key following this [guide](https://help.github.com/articles/generating-ssh-keys/).
+
+* Source this script when you start a new session: `setupGit.sh`
+
 ### Set up ATLAS environment, create working directory, and check out packages
 
 `setupATLAS`
@@ -47,7 +57,7 @@ In the future this will be added to the configuration settings.
 
 `rc build`
 
-### Download the samples.
+### Download the samples
 
 Download my background and signal samples from the grid.
 
