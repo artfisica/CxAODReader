@@ -79,7 +79,6 @@ cutflow histogram with the cutflow below.
 | delta Phi   |   11133 |
 | 500 MET     |     845 |
 | mJet        |     223 |
-|-------------|---------|
 
 ### Plotting
 
