@@ -9,6 +9,8 @@ Follow these steps to set up your working area for DC14 samples.
 
 If you already have a github account skip this step. 
 
+* Install git on your computer
+
 * Sign up on github.com
 
 * Generate an ssh key following this [guide](https://help.github.com/articles/generating-ssh-keys/).
