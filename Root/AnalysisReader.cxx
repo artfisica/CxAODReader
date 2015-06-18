@@ -85,6 +85,8 @@ EL::StatusCode AnalysisReader :: histInitialize ()
   // In absence of hist manager suggest m_hist_Xlep_histname for pointers
   // name on file can be the same
 
+  TH1::SetDefaultSumw2();
+
   // some histograms useful for all analyses
   // Truth pt
   m_hist_VPtTruth = new TH1F("VptTruth","V pt truth; V pt truth [GeV]; Events",100,0,1000);
@@ -186,8 +188,6 @@ EL::StatusCode AnalysisReader :: histInitialize ()
     {"METQcd", new TH1D("QCD CR: E_{T}^{Miss}", "QCD CR: E_{T}^{Miss}; E_{T}^{Miss} [GeV]; Normalized Events / 50 GeV",22,100.,1200.)},
     {"bjetMultQcd", new TH1D("QCD CR: AKt4 b-jet Multiplicity", "QCD CR: AKt4 b-jet Multiplicity; Multiplicity_{AKt4 b-jet}; Normalized Events",6,-0.5,5.5)},
   };
-
-  TH1::SetDefaultSumw2();
 
   // setup histograms
   map<string,TH1D*>::iterator histItr = m_histMap.begin();
