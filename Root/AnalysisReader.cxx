@@ -228,7 +228,7 @@ EL::StatusCode AnalysisReader :: fileExecute ()
 
   // Flag if is Pt0 slice, to kill overlapping events. PtV slices only in 13TeV xAOD samples
   TString filename(inputfile->GetName());
-  m_isSherpaPt0VJets= (filename.Contains("Pt0") && m_comEnergy=="13TeV") ? true : false;
+  m_isSherpaPt0VJets= (filename.Contains("Pt0")) ? true : false;
   if(filename.Contains("Sherpa_CT10_W") && filename.Contains("Pt0")  && m_comEnergy=="13TeV") m_SherpaPt0VJetsCut = 40000 ;
 
   // general Sherpa flag
@@ -429,7 +429,11 @@ EL::StatusCode AnalysisReader :: execute ()
       TLorentzVector V(lep0->p4());
       V+=lep1->p4();
       vpt_truth=V.Pt();
-      if (m_isSherpaPt0VJets &&  vpt_truth > m_SherpaPt0VJetsCut)  return EL::StatusCode::SUCCESS;
+      if (m_isSherpaPt0VJets &&  vpt_truth > m_SherpaPt0VJetsCut) 
+      {
+        if(m_debug) std::cout << "rejected: " << vpt_truth << std::endl;
+        return EL::StatusCode::SUCCESS;
+      }
     }
   }
 
@@ -442,6 +446,8 @@ EL::StatusCode AnalysisReader :: execute ()
   if (m_isMC) {
     EL_CHECK("AnalysisReader::execute()", getLumiWeight(m_weight));
   }
+
+  if(m_debug && m_eventCounter<50) std::cout << m_weight << std::endl;
 
   // Sherpa Vpt  
   if (m_isSherpaVJets) 
