@@ -37,7 +37,7 @@ If you already have a github account skip this step.
 
 `cd CxAODReader`
 
-`git checkout v0.1`
+`git checkout v0.3`
 
 `cd ..`
 
