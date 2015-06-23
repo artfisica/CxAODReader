@@ -21,6 +21,9 @@ if not os.access("run_batch_LSF.sh",os.X_OK):
     sys.exit(0)
 
 for p, pn in zip(process,processNum):
+    queue = "1nh"
+    if p=="ttbar":
+        queue = "8nh"
     sp.call(("export process={0}; export processNum={1}; export directory={2}; "
-             "bsub -M 16000 -q 1nh -W 450  "
-             "run_batch_LSF.sh").format(p,pn,os.getcwd()), shell=True)
+             "bsub -M 16000 -q {3} -W 450  "
+             "run_batch_LSF.sh").format(p,pn,os.getcwd(),queue), shell=True)
