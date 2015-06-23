@@ -92,18 +92,44 @@ int main(int argc, char* argv[]) {
   if(run==19)sample_names.push_back("Zee");
   if(run==20)sample_names.push_back("Zmumu");
   if(run==21)sample_names.push_back("Ztautau");
+  if(run==22)sample_names.push_back("ZnunuB");
+  if(run==23)sample_names.push_back("ZnunuC");
+  if(run==24)sample_names.push_back("ZnunuL");
+  if(run==25)sample_names.push_back("ZeeB");
+  if(run==26)sample_names.push_back("ZeeC");
+  if(run==27)sample_names.push_back("ZeeL");
+  if(run==28)sample_names.push_back("ZmumuB");
+  if(run==29)sample_names.push_back("ZmumuC");
+  if(run==30)sample_names.push_back("ZmumuL");
+  if(run==31)sample_names.push_back("ZtautauB");
+  if(run==32)sample_names.push_back("ZtautauC");
+  if(run==33)sample_names.push_back("ZtautauL");
+  if(run==34)sample_names.push_back("WenuB");
+  if(run==35)sample_names.push_back("WenuC");
+  if(run==36)sample_names.push_back("WenuL");
+  if(run==37)sample_names.push_back("WmunuB");
+  if(run==38)sample_names.push_back("WmunuC");
+  if(run==39)sample_names.push_back("WmunuL");
+  if(run==40)sample_names.push_back("WtaunuB");
+  if(run==41)sample_names.push_back("WtaunuC");
+  if(run==42)sample_names.push_back("WtaunuL");
+  if(run==43)sample_names.push_back("dijet");
+  if(run==44)sample_names.push_back("ttbar");
+  if(run==45)sample_names.push_back("singletop_Wt");
+  if(run==46)sample_names.push_back("singletop_s");
+  if(run==47)sample_names.push_back("singletop_t");
 
   // where to read data from
-  bool eos(false);
+  bool eos(true);
 
   // datasets copied to afs
   //std::string afsdir("/data8/data/anelson/CxAOD.v01/");
   //std::string afsdir("/gdata/atlas/anelson/CxAOD.v02/");
-  std::string afsdir("/gdata/atlas/anelson/CxAOD.SubStructure/");
+  std::string afsdir("/afs/cern.ch/work/a/anelson/CXAOD/EOS/");
   // datasets copied to eos
   TString CxAODver("CxAOD_00-00-05");
   TString xAODver("_p1784");
-  TString eosdir("/eos/atlas/atlasgroupdisk/phys-higgs/HSG5/Run2/VH/");
+  TString eosdir("/eos/atlas/atlasgroupdisk/phys-higgs/HSG5/Run2/VH/HIGG5D1_13TeV/CxAOD_00-09-01/");
 
   if (eos)
     std::cout << " Looking for directory " << eosdir << std::endl;

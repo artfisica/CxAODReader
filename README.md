@@ -37,7 +37,7 @@ If you already have a github account skip this step.
 
 `cd CxAODReader`
 
-`git checkout v0.3`
+`git checkout v0.4`
 
 `cd ..`
 
@@ -65,16 +65,16 @@ In the future this will be added to the configuration settings.
 
 `rc build`
 
-### Download the samples
-
-Download my background and signal samples from the grid.
-
-`user.anelson.mc14_13TeV.*.CAOD_HIGG5D1.v09-03-02_outputLabel*/`
-
-They will need to be put in a directory (above it was 
-`/gdata/atlas/anelson/CxAOD.SubStructure/`), and put the samples 
-in directories according to their type. For example, all the 
-Znunu samples go in a directory called Zvv.
+%### Download the samples
+%
+%Download my background and signal samples from the grid.
+%
+%`user.anelson.mc14_13TeV.*.CAOD_HIGG5D1.v09-03-02_outputLabel*/`
+%
+%They will need to be put in a directory (above it was 
+%`/gdata/atlas/anelson/CxAOD.SubStructure/`), and put the samples 
+%in directories according to their type. For example, all the 
+%Znunu samples go in a directory called Zvv.
 
 ### Run over a sample
 
@@ -97,6 +97,16 @@ cutflow histogram with the cutflow below.
 | delta Phi   |   11133 |
 | 500 MET     |     845 |
 | mJet        |     223 |
+
+The full cutflow is on a 
+[google document](https://docs.google.com/spreadsheets/d/13CUvy5W5UqGjZphaJOqcg9gakGUXwZdkHscXt-d5nww/edit#gid=1605348284), 
+please fill it in when you have 
+processed all the samples (see next section).
+
+### Process full samples
+
+We are using the official CxAOD_00-09-01 samples on EOS. You can submit 
+jobs to process all of them on lxbatch with the script `submit_LSF.py`
 
 ### Plotting
 
