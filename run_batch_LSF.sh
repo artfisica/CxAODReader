@@ -8,3 +8,5 @@ source rcSetup.sh;
 
 rm -f ${process};
 hsg5frameworkReadCxAOD ${process} ${processNum};
+
+cp -r ${process} ${directory}
