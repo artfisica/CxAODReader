@@ -65,17 +65,6 @@ In the future this will be added to the configuration settings.
 
 `rc build`
 
-%### Download the samples
-%
-%Download my background and signal samples from the grid.
-%
-%`user.anelson.mc14_13TeV.*.CAOD_HIGG5D1.v09-03-02_outputLabel*/`
-%
-%They will need to be put in a directory (above it was 
-%`/gdata/atlas/anelson/CxAOD.SubStructure/`), and put the samples 
-%in directories according to their type. For example, all the 
-%Znunu samples go in a directory called Zvv.
-
 ### Run over a sample
 
 Run over the Zvv samples like:
